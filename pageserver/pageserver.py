@@ -1,3 +1,4 @@
+
 """
   A trivial web server in Python.
 
@@ -15,10 +16,13 @@
 
 import config    # Configure from .ini files and command line
 import logging   # Better than print statements
+import os
+from urllib.parse import unquote
+
 logging.basicConfig(format='%(levelname)s:%(message)s',
                     level=logging.INFO)
 log = logging.getLogger(__name__)
-# Logging level may be overridden by configuration 
+# Logging level may be overridden by configuration
 
 import socket    # Basic TCP/IP communication on the internet
 import _thread   # Response computation runs concurrently with main program
@@ -50,8 +54,8 @@ def serve(sock, func):
        func:  a function that takes a client socket and does something with it
     Returns: nothing
     Effects:
-        For each connection, func is called on a client socket connected
-        to the connected client, running concurrently in its own thread.
+        For each connection, func is called on a client socket connected to
+        the connected client, running concurrently in its own thread.
     """
     while True:
         log.info("Attempting to accept a connection on {}".format(sock))
@@ -72,7 +76,8 @@ CAT = """
 # See:  https://en.wikipedia.org/wiki/List_of_HTTP_status_codes
 # or    http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
 ##
-STATUS_OK = "HTTP/1.0 200 OK\n\n"
+STATUS_OK = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"
+STATUS_OK_CSS = "HTTP/1.0 200 OK\r\nContent-Type: text/css\r\n\r\n"
 STATUS_FORBIDDEN = "HTTP/1.0 403 Forbidden\n\n"
 STATUS_NOT_FOUND = "HTTP/1.0 404 Not Found\n\n"
 STATUS_NOT_IMPLEMENTED = "HTTP/1.0 401 Not Implemented\n\n"
@@ -81,7 +86,7 @@ STATUS_NOT_IMPLEMENTED = "HTTP/1.0 401 Not Implemented\n\n"
 def respond(sock):
     """
     This server responds only to GET requests (not PUT, POST, or UPDATE).
-    Any valid GET request is answered with an ascii graphic of a cat.
+    Valid GET requests for .html and .css files are served from ./pages.
     """
     sent = 0
     request = sock.recv(1024)  # We accept only short requests
@@ -91,8 +96,48 @@ def respond(sock):
 
     parts = request.split()
     if len(parts) > 1 and parts[0] == "GET":
-        transmit(STATUS_OK, sock)
-        transmit(CAT, sock)
+
+        # Get the requested path and remove the first leading slash
+        path = unquote(parts[1].split("?", 1)[0])
+        if path.startswith("/"):
+            path = path[1:]
+
+        # Check for forbidden paths
+        segments = path.replace("\\", "/").split("/")
+
+        if (path.startswith(("~", "/", "..")) or
+                "//" in path or
+                any(segment == ".." for segment in segments)):
+            transmit(STATUS_FORBIDDEN, sock)
+
+        # Only serve HTML and CSS files
+        elif not path.endswith((".html", ".css")):
+            transmit(STATUS_NOT_FOUND, sock)
+
+        else:
+            # Look for the requested file in the pages directory
+            docroot = os.path.realpath(config.configuration().DOCROOT)
+            filepath = os.path.realpath(os.path.join(docroot, path))
+
+            # Prevent requests from accessing files outside pages
+            if os.path.commonpath([docroot, filepath]) != docroot:
+                transmit(STATUS_FORBIDDEN, sock)
+
+            elif not os.path.isfile(filepath):
+                transmit(STATUS_NOT_FOUND, sock)
+
+            else:
+                # Send the requested file
+                with open(filepath, "r", encoding="utf-8") as file:
+                    content = file.read()
+
+                if path.endswith(".css"):
+                    transmit(STATUS_OK_CSS, sock)
+                else:
+                    transmit(STATUS_OK, sock)
+
+                transmit(content, sock)
+
     else:
         log.info("Unhandled request: {}".format(request))
         transmit(STATUS_NOT_IMPLEMENTED, sock)
@@ -109,6 +154,7 @@ def transmit(msg, sock):
     while sent < len(msg):
         buff = bytes(msg[sent:], encoding="utf-8")
         sent += sock.send(buff)
+
 
 ###
 #

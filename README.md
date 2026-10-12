@@ -1,7 +1,9 @@
 # README #
 
-A "getting started" project for CIS 322, introduction to software
-engineering,  at University of Oregon.
+- Name: Andy Tatman
+- Course: CIS 322
+- Project: Project 1 - Page Server
+- Repository: https://github.com/tatmanUO/proj1-pageserver
 
 ### What is this repository for? ###
 
